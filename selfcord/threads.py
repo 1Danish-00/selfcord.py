@@ -181,7 +181,7 @@ class Thread(Messageable, Hashable):
         self.slowmode_delay: int = data.get('rate_limit_per_user', 0)
         self.message_count: int = data['message_count']
         self.member_count: int = data['member_count']
-        self._member_ids: List[Union[str, int]] = data['member_ids_preview']
+        self._member_ids: List[Union[str, int]] = data.get('member_ids_preview', [])
         self._flags: int = data.get('flags', 0)
         # SnowflakeList is sorted, but this would not be proper for applied tags, where order actually matters.
         self._applied_tags: array.array[int] = array.array('Q', map(int, data.get('applied_tags', [])))
@@ -895,12 +895,20 @@ class Thread(Messageable, Hashable):
                 self._add_member(m)
             return self.members  # Includes correct self.me
 
-    async def delete(self) -> None:
+    async def delete(self, *, reason: Optional[str] = None) -> None:
         """|coro|
 
         Deletes this thread.
 
         You must have :attr:`~Permissions.manage_threads` to delete threads.
+
+        Parameters
+        -----------
+        reason: Optional[:class:`str`]
+            The reason for deleting this thread.
+            Shows up on the audit log.
+
+            .. versionadded:: 2.1
 
         Raises
         -------
@@ -909,7 +917,7 @@ class Thread(Messageable, Hashable):
         HTTPException
             Deleting the thread failed.
         """
-        await self._state.http.delete_channel(self.id)
+        await self._state.http.delete_channel(self.id, reason=reason)
 
     def get_partial_message(self, message_id: int, /) -> PartialMessage:
         """Creates a :class:`PartialMessage` from the message ID.

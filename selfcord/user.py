@@ -40,7 +40,15 @@ from .enums import (
 from .errors import ClientException, NotFound
 from .flags import PublicUserFlags, PrivateUserFlags, PremiumUsageFlags, PurchasedFlags
 from .relationship import Relationship
-from .utils import _bytes_to_base64_data, _get_as_snowflake, cached_slot_property, copy_doc, snowflake_time, MISSING
+from .utils import (
+    _bytes_to_base64_data,
+    _get_as_snowflake,
+    cached_slot_property,
+    copy_doc,
+    parse_timestamp,
+    snowflake_time,
+    MISSING,
+)
 from .voice_client import VoiceClient
 
 if TYPE_CHECKING:
@@ -245,6 +253,7 @@ class BaseUser(_UserTag):
         '_avatar',
         '_avatar_decoration',
         '_avatar_decoration_sku_id',
+        '_avatar_decoration_expires_at',
         '_banner',
         '_accent_colour',
         'bot',
@@ -267,6 +276,7 @@ class BaseUser(_UserTag):
         _avatar: Optional[str]
         _avatar_decoration: Optional[str]
         _avatar_decoration_sku_id: Optional[int]
+        _avatar_decoration_expires_at: Optional[int]
         _banner: Optional[str]
         _accent_colour: Optional[int]
         _public_flags: int
@@ -311,6 +321,7 @@ class BaseUser(_UserTag):
         decoration_data = data.get('avatar_decoration_data')
         self._avatar_decoration = decoration_data.get('asset') if decoration_data else None
         self._avatar_decoration_sku_id = _get_as_snowflake(decoration_data, 'sku_id') if decoration_data else None
+        self._avatar_decoration_expires_at = decoration_data.get('expires_at') if decoration_data else None
 
     @classmethod
     def _copy(cls, user: Self) -> Self:
@@ -323,6 +334,7 @@ class BaseUser(_UserTag):
         self._avatar = user._avatar
         self._avatar_decoration = user._avatar_decoration
         self._avatar_decoration_sku_id = user._avatar_decoration_sku_id
+        self._avatar_decoration_expires_at = user._avatar_decoration_expires_at
         self._banner = user._banner
         self._accent_colour = user._accent_colour
         self._public_flags = user._public_flags
@@ -335,7 +347,7 @@ class BaseUser(_UserTag):
     def _to_minimal_user_json(self) -> APIUserPayload:
         decoration: Optional[UserAvatarDecorationData] = None
         if self._avatar_decoration is not None:
-            decoration = {'asset': self._avatar_decoration}
+            decoration = {'asset': self._avatar_decoration, 'expires_at': self._avatar_decoration_expires_at}
             if self._avatar_decoration_sku_id is not None:
                 decoration['sku_id'] = self._avatar_decoration_sku_id
 
@@ -424,6 +436,18 @@ class BaseUser(_UserTag):
         .. versionadded:: 2.1
         """
         return self._avatar_decoration_sku_id
+
+    @property
+    def avatar_decoration_expires_at(self) -> Optional[datetime]:
+        """Optional[:class:`datetime.datetime`]: Returns the avatar decoration's expiration time.
+
+        If the user does not have an expiring avatar decoration, ``None`` is returned.
+
+        .. versionadded:: 2.1
+        """
+        if self._avatar_decoration_expires_at is None:
+            return None
+        return parse_timestamp(self._avatar_decoration_expires_at, ms=False)
 
     @property
     def banner(self) -> Optional[Asset]:
@@ -589,6 +613,7 @@ class BaseUser(_UserTag):
         with_mutual_guilds: bool = True,
         with_mutual_friends_count: bool = False,
         with_mutual_friends: bool = True,
+        friend_token: str = MISSING,
     ) -> UserProfile:
         """|coro|
 
@@ -608,15 +633,19 @@ class BaseUser(_UserTag):
             .. versionadded:: 2.0
         with_mutual_friends: :class:`bool`
             Whether to fetch mutual friends.
-            This fills in :attr:`UserProfile.mutual_friends` and :attr:`UserProfile.mutual_friends_count`,
-            but requires an extra API call.
+            This fills in :attr:`UserProfile.mutual_friends` and :attr:`UserProfile.mutual_friends_count`.
 
             .. versionadded:: 2.0
+        friend_token: :class:`str`
+            The friend token to use for fetching the profile.
+
+            .. versionadded:: 2.1
 
         Raises
         -------
-        Forbidden
-            Not allowed to fetch this profile.
+        NotFound
+            A user with this ID does not exist.
+            You do not have a mutual with this user, and the user is not a bot.
         HTTPException
             Fetching the profile failed.
 
@@ -630,6 +659,7 @@ class BaseUser(_UserTag):
             with_mutual_guilds=with_mutual_guilds,
             with_mutual_friends_count=with_mutual_friends_count,
             with_mutual_friends=with_mutual_friends,
+            friend_token=friend_token,
         )
 
     async def fetch_mutual_friends(self) -> List[User]:
@@ -1142,10 +1172,11 @@ class User(BaseUser, selfcord.abc.Connectable, selfcord.abc.Messageable):
         ring: bool = True,
     ) -> ConnectReturn:
         channel = await self._get_channel()
-        call = channel.call
-        if call is None and ring:
+        ret = await super().connect(timeout=timeout, reconnect=reconnect, cls=cls, _channel=channel)
+
+        if ring:
             await channel._initial_ring()
-        return await super().connect(timeout=timeout, reconnect=reconnect, cls=cls, _channel=channel)
+        return ret
 
     async def create_dm(self) -> DMChannel:
         """|coro|
@@ -1212,10 +1243,18 @@ class User(BaseUser, selfcord.abc.Connectable, selfcord.abc.Messageable):
         """
         await self._state.http.remove_relationship(self.id, action=RelationshipAction.unfriend)
 
-    async def send_friend_request(self) -> None:
+    async def send_friend_request(self, *, friend_token: str = MISSING) -> None:
         """|coro|
 
         Sends the user a friend request.
+
+        Parameters
+        -----------
+        friend_token: :class:`str`
+            The friend token to use for sending the friend request.
+            This will bypass the user's friend request settings.
+
+            .. versionadded:: 2.1
 
         Raises
         -------
@@ -1224,4 +1263,6 @@ class User(BaseUser, selfcord.abc.Connectable, selfcord.abc.Messageable):
         HTTPException
             Sending the friend request failed.
         """
-        await self._state.http.add_relationship(self.id, action=RelationshipAction.send_friend_request)
+        await self._state.http.add_relationship(
+            self.id, friend_token=friend_token or None, action=RelationshipAction.send_friend_request
+        )

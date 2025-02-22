@@ -135,7 +135,7 @@ class Parameter(inspect.Parameter):
         if displayed_name is MISSING:
             displayed_name = self._displayed_name
 
-        return self.__class__(
+        ret = self.__class__(
             name=name,
             kind=kind,
             default=default,
@@ -144,6 +144,8 @@ class Parameter(inspect.Parameter):
             displayed_default=displayed_default,
             displayed_name=displayed_name,
         )
+        ret._fallback = self._fallback
+        return ret
 
     if not TYPE_CHECKING:  # this is to prevent anything breaking if inspect internals change
         name = _gen_property('name')
@@ -187,7 +189,7 @@ class Parameter(inspect.Parameter):
     def displayed_name(self) -> Optional[str]:
         """Optional[:class:`str`]: The name that is displayed to the user.
 
-        .. versionadded:: 2.3
+        .. versionadded:: 2.1
         """
         return self._displayed_name if self._displayed_name is not empty else None
 
@@ -245,8 +247,14 @@ def parameter(
     displayed_name: :class:`str`
         The name that is displayed to the user.
 
-        .. versionadded:: 2.3
+        .. versionadded:: 2.1
     """
+    if isinstance(default, Parameter):
+        if displayed_default is empty:
+            displayed_default = default._displayed_default
+
+        default = default._default
+
     return Parameter(
         name='empty',
         kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
@@ -306,6 +314,7 @@ CurrentGuild = parameter(
     displayed_default='<this server>',
     converter=GuildConverter,
 )
+CurrentGuild._fallback = True
 
 
 class Signature(inspect.Signature):

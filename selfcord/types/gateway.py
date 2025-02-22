@@ -35,13 +35,13 @@ from .channel import ChannelType, DMChannel, GroupDMChannel, StageInstance
 from .emoji import Emoji, PartialEmoji
 from .entitlements import Entitlement, GatewayGift
 from .experiment import GuildExperiment, UserExperiment
-from .guild import ApplicationCommandCounts, Guild, SupplementalGuild, UnavailableGuild
+from .guild import Guild, SupplementalGuild, UnavailableGuild
 from .integration import BaseIntegration, IntegrationApplication
 from .interactions import Modal
 from .invite import _InviteTargetType
 from .library import LibraryApplication
 from .member import MemberWithPresence, MemberWithUser
-from .message import Message
+from .message import Message, ReactionType
 from .payments import Payment
 from .read_state import ReadState, ReadStateType
 from .role import Role
@@ -178,8 +178,7 @@ class MessageDeleteBulkEvent(TypedDict):
     guild_id: NotRequired[Snowflake]
 
 
-class MessageUpdateEvent(Message):
-    channel_id: Snowflake
+MessageUpdateEvent = MessageCreateEvent
 
 
 class MessageReactionAddEvent(TypedDict):
@@ -190,6 +189,9 @@ class MessageReactionAddEvent(TypedDict):
     member: NotRequired[MemberWithUser]
     guild_id: NotRequired[Snowflake]
     message_author_id: NotRequired[Snowflake]
+    burst: bool
+    burst_colors: NotRequired[List[str]]
+    type: ReactionType
 
 
 class MessageReactionRemoveEvent(TypedDict):
@@ -198,6 +200,8 @@ class MessageReactionRemoveEvent(TypedDict):
     message_id: Snowflake
     emoji: PartialEmoji
     guild_id: NotRequired[Snowflake]
+    burst: bool
+    type: ReactionType
 
 
 class MessageReactionRemoveAllEvent(TypedDict):
@@ -248,6 +252,7 @@ ChannelCreateEvent = ChannelUpdateEvent = ChannelDeleteEvent = _ChannelEvent
 class ChannelRecipientEvent(TypedDict):
     channel_id: Snowflake
     user: PartialUser
+    nick: str
 
 
 class ChannelPinsUpdateEvent(TypedDict):
@@ -468,6 +473,7 @@ class ConnectionsLinkCallbackEvent(TypedDict):
 
 class OAuth2TokenRevokeEvent(TypedDict):
     access_token: str
+    application_id: Snowflake
 
 
 class AuthSessionChangeEvent(TypedDict):
@@ -496,7 +502,7 @@ class BillingPopupBridgeCallbackEvent(TypedDict):
     payment_source_type: int
     state: str
     path: str
-    query: str
+    query: Dict[str, str]
 
 
 PaymentUpdateEvent = Payment
@@ -563,11 +569,19 @@ class PartialUpdateChannel(TypedDict):
     last_pin_timestamp: NotRequired[Optional[str]]
 
 
-class PassiveUpdateEvent(TypedDict):
+class PassiveUpdateV1Event(TypedDict):
     guild_id: Snowflake
     channels: List[PartialUpdateChannel]
     voice_states: NotRequired[List[VoiceState]]
     members: NotRequired[List[MemberWithUser]]
+
+
+class PassiveUpdateV2Event(TypedDict):
+    guild_id: Snowflake
+    removed_voice_states: List[Snowflake]
+    updated_channels: List[PartialUpdateChannel]
+    members: List[MemberWithUser]
+    updated_voice_states: List[VoiceState]
 
 
 class GuildApplicationCommandIndexUpdateEvent(TypedDict):
@@ -697,3 +711,11 @@ class GuildMemberListUpdateEvent(TypedDict):
     online_count: int
     groups: List[GuildMemberListGroup]
     ops: List[GuildMemberListOP]
+
+
+class PollVoteActionEvent(TypedDict):
+    user_id: Snowflake
+    channel_id: Snowflake
+    message_id: Snowflake
+    guild_id: NotRequired[Snowflake]
+    answer_id: int
