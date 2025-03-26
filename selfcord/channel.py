@@ -103,7 +103,7 @@ if TYPE_CHECKING:
     from .sticker import GuildSticker, StickerItem
     from .file import File
     from .user import BaseUser, ClientUser, User
-    from .guild import Guild, GuildChannel as GuildChannelType
+    from .guild import Guild, GuildChannel as GuildChannelType, UserGuild
     from .settings import ChannelSettings
     from .read_state import ReadState
     from .types.channel import (
@@ -3370,7 +3370,7 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
     async def clone(self, *, name: Optional[str] = None, reason: Optional[str] = None) -> DirectoryChannel:
         return await self._clone_impl({'topic': self.topic}, name=name, reason=reason)
 
-    async def counts(self) -> Dict[DirectoryCategory, int]:
+    async def counts(self) -> Mapping[DirectoryCategory, int]:
         """|coro|
 
         Gets the number of entries in each category.
@@ -3393,12 +3393,19 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
     async def entries(
         self,
         *,
-        type: Optional[DirectoryEntryType] = None,
-        category: Optional[DirectoryCategory] = None,
+        type: DirectoryEntryType = MISSING,
+        category: DirectoryCategory = MISSING,
     ) -> List[DirectoryEntry]:
         """|coro|
 
         Gets the directory entries in this channel.
+
+        Parameters
+        -----------
+        type: :class:`DirectoryEntryType`
+            The type of entries to get. Defaults to all types.
+        category: :class:`DirectoryCategory`
+            The category of entries to get. Defaults to all categories.
 
         Raises
         -------
@@ -3418,6 +3425,32 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
         )
         return [DirectoryEntry(state=state, data=e, channel=self) for e in data]
 
+    async def fetch_entry(self, entity_id: int) -> DirectoryEntry:
+        """|coro|
+
+        Gets a directory entry by its ID.
+
+        Parameters
+        -----------
+        entity_id: :class:`int`
+            The ID of the entry to fetch.
+
+        Raises
+        -------
+        Forbidden
+            You don't have permissions to get the entry.
+        HTTPException
+            Getting the entry failed.
+
+        Returns
+        --------
+        :class:`DirectoryEntry`
+            The entry in this channel.
+        """
+        state = self._state
+        data = await state.http.get_directory_entry(self.id, entity_id)
+        return DirectoryEntry(state=state, data=data, channel=self)
+
     async def fetch_entries(self, *entity_ids: int) -> List[DirectoryEntry]:
         r"""|coro|
 
@@ -3425,7 +3458,8 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
 
         .. note::
 
-            These :class:`DirectoryEntry` objects do not have :attr:`DirectoryEntry.guild`.
+            These :class:`DirectoryEntry` objects do not have
+            :attr:`DirectoryEntry.guild` or :attr:`DirectoryEntry.scheduled_event`.
 
         Parameters
         -----------
@@ -3456,7 +3490,7 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
         query: str,
         /,
         *,
-        category: Optional[DirectoryCategory] = None,
+        category: DirectoryCategory = MISSING,
     ) -> List[DirectoryEntry]:
         """|coro|
 
@@ -3466,6 +3500,8 @@ class DirectoryChannel(selfcord.abc.GuildChannel, Hashable):
         -----------
         query: :class:`str`
             The query to search for.
+        category: :class:`DirectoryCategory`
+            The category to search in. Defaults to all categories.
 
         Raises
         -------
@@ -4617,7 +4653,7 @@ class PartialMessageable(selfcord.abc.Messageable, Hashable):
         return self
 
     @classmethod
-    def _from_webhook_channel(cls, guild: Guild, channel: WebhookChannelPayload) -> Self:
+    def _from_webhook_channel(cls, guild: Union[Guild, UserGuild], channel: WebhookChannelPayload) -> Self:
         return cls(
             state=guild._state,
             id=int(channel['id']),

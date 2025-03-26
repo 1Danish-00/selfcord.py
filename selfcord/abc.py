@@ -100,6 +100,7 @@ if TYPE_CHECKING:
         StageChannel,
         CategoryChannel,
     )
+    from .permissions import flag_value
     from .poll import Poll
     from .threads import Thread
     from .types.channel import (
@@ -690,10 +691,34 @@ class GuildChannel:
     def _sorting_bucket(self) -> int:
         raise NotImplementedError
 
+    def _can_everyone(self, permission: flag_value) -> bool:
+        if self.permissions_for(self.guild.default_role).value & permission.flag != permission.flag:
+            return False
+        for overwrite in self._overwrites:
+            if overwrite.deny & permission.flag == permission.flag:
+                return False
+        return True
+
+    def _is_everyone_member_list(self) -> bool:
+        # This should use _can_everyone(Permissions.read_messages) but Discord's implementation is flawed
+        # so we must use the flawed implementation to be compatible
+        if not self.guild.default_role.permissions.read_messages:
+            return False
+        for overwrite in self._overwrites:
+            if overwrite.deny & Permissions.read_messages.flag == Permissions.read_messages.flag:
+                return False
+        return True
+
     @property
-    def member_list_id(self) -> Union[str, Literal["everyone"]]:
-        if self.permissions_for(self.guild.default_role).read_messages:
-            return "everyone"
+    def member_list_id(self) -> Union[str, Literal['everyone']]:
+        """:class:`str`: The ID of the member list for this channel.
+
+        A member list ID of ``everyone`` indicates that everyone can view the channel.
+
+        .. versionadded:: 2.1
+        """
+        if self._is_everyone_member_list():
+            return 'everyone'
 
         overwrites = []
         for overwrite in self._overwrites:
@@ -1908,6 +1933,9 @@ class Messageable:
             Sending the message failed.
         ~selfcord.Forbidden
             You do not have the proper permissions to send the message.
+        ~selfcord.NotFound
+            You sent a message with the same nonce as one that has been explicitly
+            deleted shortly earlier.
         ValueError
             The ``files`` list is not of the appropriate size.
         TypeError
@@ -2061,6 +2089,10 @@ class Messageable:
         the destination for an indefinite period of time, or 10 seconds if the context manager
         is called using ``await``.
 
+        The returned context manager contains ``message_send_cooldown`` and ``thread_create_cooldown``
+        attributes that are integers representing the time left until the channel's slowmode
+        expires. These attributes are updated from every typing request sent to the API.
+
         Example Usage: ::
 
             async with channel.typing():
@@ -2080,6 +2112,9 @@ class Messageable:
 
         .. versionchanged:: 2.0
             Added functionality to ``await`` the context manager to send a typing indicator for 10 seconds.
+
+        .. versionchanged:: 2.1
+            Added ``message_send_cooldown`` and ``thread_create_cooldown`` attributes to the context manager.
         """
         return Typing(self)
 
